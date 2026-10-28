@@ -1,0 +1,272 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TaskFlow | Docker Project</title>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      margin: 0;
+      padding: 40px 16px;
+    }
+
+    .container {
+      max-width: 650px;
+      margin: auto;
+    }
+
+    h1 { margin-bottom: 4px; }
+
+    .subtitle {
+      color: #94a3b8;
+      margin-bottom: 30px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat, .task, form {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 28px;
+      color: #38bdf8;
+    }
+
+    .stat span { color: #94a3b8; }
+
+    form {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      min-width: 0;
+      background: #0f172a;
+      color: white;
+      padding: 12px;
+      border: 1px solid #475569;
+      border-radius: 8px;
+    }
+
+    button {
+      background: #0284c7;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    button:hover { background: #0369a1; }
+
+    .task {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .task span { flex: 1; }
+
+    .done {
+      text-decoration: line-through;
+      color: #94a3b8;
+    }
+
+    .delete { background: #be123c; }
+    .delete:hover { background: #9f1239; }
+
+    #message { color: #fca5a5; }
+
+    .footer {
+      color: #64748b;
+      text-align: center;
+      margin-top: 32px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>TaskFlow</h1>
+    <p class="subtitle">Docker + FastAPI + PostgreSQL + Redis</p>
+
+    <div class="stats">
+      <div class="stat">
+        <strong id="total">0</strong>
+        <span>Total</span>
+      </div>
+
+      <div class="stat">
+        <strong id="completed">0</strong>
+        <span>Completed</span>
+      </div>
+
+      <div class="stat">
+        <strong id="pending">0</strong>
+        <span>Pending</span>
+      </div>
+    </div>
+
+    <form id="taskForm">
+      <input
+        id="title"
+        type="text"
+        maxlength="200"
+        placeholder="Enter a new task..."
+        required
+      >
+      <button type="submit">Add Task</button>
+    </form>
+
+    <p id="message" role="alert"></p>
+    <div id="tasks"></div>
+
+    <div class="footer">
+      TaskFlow — Docker DevOps Portfolio Project
+    </div>
+  </div>
+
+  <script>
+    const api = "/api";
+
+    async function request(path, options = {}) {
+      const response = await fetch(api + path, options);
+
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    function showError(error) {
+      document.getElementById("message").textContent =
+        error.message;
+    }
+
+    async function loadTasks() {
+      const tasks = await request("/tasks");
+      const container = document.getElementById("tasks");
+
+      container.replaceChildren();
+
+      for (const task of tasks) {
+        const row = document.createElement("div");
+        row.className = "task";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = task.completed;
+
+        checkbox.addEventListener("change", async () => {
+          try {
+            await request(`/tasks/${task.id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                completed: checkbox.checked
+              })
+            });
+
+            await refresh();
+          } catch (error) {
+            showError(error);
+            await refresh().catch(showError);
+          }
+        });
+
+        const title = document.createElement("span");
+        title.textContent = task.title;
+
+        if (task.completed) {
+          title.className = "done";
+        }
+
+        const deleteButton = document.createElement("button");
+        deleteButton.textContent = "Delete";
+        deleteButton.className = "delete";
+
+        deleteButton.addEventListener("click", async () => {
+          try {
+            await request(`/tasks/${task.id}`, {
+              method: "DELETE"
+            });
+
+            await refresh();
+          } catch (error) {
+            showError(error);
+          }
+        });
+
+        row.append(checkbox, title, deleteButton);
+        container.appendChild(row);
+      }
+    }
+
+    async function loadStats() {
+      const stats = await request("/stats");
+
+      document.getElementById("total").textContent =
+        stats.total;
+
+      document.getElementById("completed").textContent =
+        stats.completed;
+
+      document.getElementById("pending").textContent =
+        stats.pending;
+    }
+
+    async function refresh() {
+      document.getElementById("message").textContent = "";
+      await loadTasks();
+      await loadStats();
+    }
+
+    document.getElementById("taskForm")
+      .addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const input = document.getElementById("title");
+        const title = input.value.trim();
+
+        if (!title) return;
+
+        try {
+          await request("/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title })
+          });
+
+          input.value = "";
+          await refresh();
+        } catch (error) {
+          showError(error);
+        }
+      });
+
+    refresh().catch(showError);
+  </script>
+</body>
+</html>
